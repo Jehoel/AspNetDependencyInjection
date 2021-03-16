@@ -186,6 +186,31 @@ Another advantage of this approach is that if you need to use a `DbContext` insi
 * `WebActivatorEx`'s `PreApplicationStartMethod` (the `PreStart` method in our sample above) runs **before** OWIN's Startup method.
 	* See this StackOverflow post: https://stackoverflow.com/questions/21462777/webactivatorex-vs-owinstartup
 
+### How to deal with `ObjectDataSource` controls
+Background: `ObjectDataSource` controls invoke a `Select` method defined in the `Page` object in order to retrieve the data to bind to other controls. This select method is usually a `static` method on the containing page, which prevents using DI, but can also be an instance method, in which case it instantiates a new `Page` object and calls the method on the newly created instance. That's the scenario when DI should be possible.
+
+Unfortunately it seems that Microsoft never updated the `ObjectDataSource` control to use `HttpRuntime.WebObjectActivator`, so it's not able to instantiate DI-enabled `Page` controls. However, it is possible to override its `ObjectCreating` event to make it work the way we want:
+
+```
+using System.Web;
+using System.Web.Compilation;
+using System.Web.UI.WebControls;
+...
+public class DiObjectDataSource: ObjectDataSource 
+{
+  public DiObjectDataSource()
+  {
+#if NET472_OR_GREATER
+    this.ObjectCreating += (sender, args) =>
+      args.ObjectInstance = HttpRuntime.WebObjectActivator?.GetService(Type.GetType(BuildManager.GetType(
+                    ((ObjectDataSourceView) sender).TypeName, false, true));
+#endif 
+  }
+}
+```
+
+We need to use `BuildManager.GetType` instead of `Type.GetType` because this method is actually able to look for the type in all of the application assemblies - otherwise we'd be restricted to the current assembly types.
+
 ## Included services
 
 All included services are exposed as interfaces so you can replace them with your own implementation for testing purposes or for different production scenarios. They are listed below:
